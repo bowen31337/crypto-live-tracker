@@ -4,8 +4,6 @@ import ta
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from matplotlib.gridspec import GridSpec
-import numpy as np
-from datetime import datetime
 
 BASE_URL = 'https://api.binance.com/api/v3'
 
