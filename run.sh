@@ -10,7 +10,14 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# Install system dependencies for Pillow and other packages
+# Detect if running on Raspberry Pi
+IS_RASPBERRY_PI=false
+if [ -f /etc/rpi-issue ] || grep -q "Raspberry Pi" /proc/cpuinfo; then
+    IS_RASPBERRY_PI=true
+    echo "Detected Raspberry Pi environment"
+fi
+
+# Install system dependencies
 echo "Installing system dependencies..."
 apt-get update
 apt-get install -y \
@@ -29,7 +36,11 @@ apt-get install -y \
     python3-tk \
     libharfbuzz-dev \
     libfribidi-dev \
-    libxcb1-dev
+    libxcb1-dev \
+    libatlas-base-dev \  # Required for numpy on RPi
+    python3-numpy \      # System numpy for RPi
+    python3-pandas \     # System pandas for RPi
+    python3-matplotlib   # System matplotlib for RPi
 
 # Print debugging information
 echo "Current directory: $(pwd)"
@@ -41,7 +52,7 @@ rm -rf venv build dist __pycache__ *.pyc
 
 # Create fresh virtual environment
 echo "Creating new virtual environment..."
-python3 -m venv venv
+python3 -m venv venv --system-site-packages  # Allow access to system packages
 
 # Activate virtual environment
 echo "Activating virtual environment..."
@@ -59,9 +70,14 @@ python -m pip install --upgrade pip
 echo "Installing wheel..."
 pip install wheel
 
-# Install requirements with verbose output
-echo "Installing requirements..."
-pip install -v -r requirements.txt
+if [ "$IS_RASPBERRY_PI" = true ]; then
+    echo "Installing dependencies for Raspberry Pi..."
+    # Install remaining packages without dependencies to avoid conflicts
+    pip install -v requests ta python-dateutil --no-deps
+else
+    echo "Installing dependencies for standard environment..."
+    pip install -v -r requirements.txt
+fi
 
 # Clear any Python cache
 echo "Clearing Python cache..."
