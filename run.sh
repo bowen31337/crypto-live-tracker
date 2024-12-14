@@ -34,9 +34,13 @@ python -m pip install --upgrade pip
 echo "Installing wheel..."
 pip install wheel
 
-# Install dependencies
-echo "Installing dependencies from requirements.txt..."
-pip install -r requirements.txt
+# Install dependencies one by one to ensure proper installation
+echo "Installing core dependencies..."
+pip install numpy --no-cache-dir
+pip install pandas --no-cache-dir
+pip install matplotlib --no-cache-dir
+pip install requests --no-cache-dir
+pip install ta --no-cache-dir
 
 # Clear any Python cache
 echo "Clearing Python cache..."
@@ -49,4 +53,5 @@ pip list
 
 # Run the application from the project root
 echo "Running the application..."
+cd "$(dirname "$0")"  # Move to script directory
 PYTHONPATH="$(pwd)" python main.py
