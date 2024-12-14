@@ -97,6 +97,9 @@ class CryptoChart:
         self.tick_size = max(10, int(fig_width * 0.5))
         self.legend_size = max(10, int(fig_width * 0.5))
         
+        # Store animation object
+        self.ani = None
+        
         # Adjust GridSpec with proper spacing
         self.gs = GridSpec(3, 1, 
                          height_ratios=[2, 1, 1], 
@@ -132,8 +135,18 @@ class CryptoChart:
         except Exception as e:
             print(f"Could not maximize window: {e}")
         
+        # Connect the close event
+        self.fig.canvas.mpl_connect('close_event', self._on_close)
+        
         print("Chart initialized")
         self.first_update()
+    
+    def _on_close(self, event):
+        """Handle figure close event"""
+        print("Closing chart...")
+        if self.ani is not None:
+            self.ani.event_source.stop()
+        plt.close('all')
     
     def first_update(self):
         """Initial update to ensure data is displayed"""
@@ -144,6 +157,18 @@ class CryptoChart:
             if df is not None:
                 self.plot_data(df)
                 print("Initial plot completed")
+    
+    def update(self, frame):
+        """Update the chart with new data"""
+        print(f"Update frame {frame}")
+        try:
+            df = fetch_klines()
+            if df is not None:
+                df = calculate_indicators(df)
+                if df is not None:
+                    self.plot_data(df)
+        except Exception as e:
+            print(f"Error in update: {e}")
     
     def plot_data(self, df):
         print("Plotting data...")
@@ -199,29 +224,33 @@ class CryptoChart:
         # Align labels and adjust layout
         self.fig.align_labels()
     
-    def update(self, frame):
-        print(f"Update frame {frame}")
-        df = fetch_klines()
-        if df is not None:
-            df = calculate_indicators(df)
-            if df is not None:
-                self.plot_data(df)
+    def start_animation(self):
+        """Start the animation"""
+        print("Starting animation...")
+        try:
+            self.ani = FuncAnimation(
+                self.fig,
+                self.update,
+                interval=1000,
+                blit=False
+            )
+            print("Animation started")
+            return self.ani
+        except Exception as e:
+            print(f"Error starting animation: {e}")
+            return None
 
 def main():
     try:
         print("Starting application...")
         chart = CryptoChart()
-        ani = FuncAnimation(
-            chart.fig,
-            chart.update,
-            interval=1000,  # Update every minute
-            cache_frame_data=False,
-            save_count=100
-        )
+        anim = chart.start_animation()
         print("Starting plot display...")
         plt.show()
     except Exception as e:
         print(f"Error in main: {e}")
+    finally:
+        plt.close('all')
 
 if __name__ == "__main__":
     main()
