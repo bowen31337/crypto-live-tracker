@@ -61,6 +61,7 @@ def fetch_klines(symbol, interval='1m', limit=100, start_time=None):
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
         df.set_index('timestamp', inplace=True)
 
+        print(df.tail())  # Add this to verify the last rows of the fetched data
         return df
     except requests.exceptions.RequestException as req_err:
         print(f"Request error: {req_err}")
@@ -153,7 +154,8 @@ class CryptoChart:
 
     def plot_data(self, df):
         """Plot the data on the chart"""
-        print(f"Plotting data for {self.current_symbol}...")
+        print(f"Last close price in DataFrame: {df['close'].iloc[-1]}")  # Debugging the last price
+
         # Clear previous plots
         self.ax_candle.clear()
         self.ax_macd.clear()
@@ -163,6 +165,7 @@ class CryptoChart:
         width = (df.index[1] - df.index[0]).total_seconds() / (60 * 60 * 24) * 0.8
         up = df[df.close >= df.open]
         down = df[df.close < df.open]
+
         if not up.empty:
             self.ax_candle.bar(up.index, up.close - up.open, width, bottom=up.open, color='green')
             self.ax_candle.vlines(up.index, up.low, up.high, color='green', linewidth=1)
@@ -170,35 +173,45 @@ class CryptoChart:
             self.ax_candle.bar(down.index, down.close - down.open, width, bottom=down.open, color='red')
             self.ax_candle.vlines(down.index, down.low, down.high, color='red', linewidth=1)
 
+        # Add the last price as a live annotation
+        last_price = df['close'].iloc[-1]
+        self.ax_candle.annotate(
+            f'Last Price: {last_price:.8f}',  # Show the price with 8 decimal places
+            xy=(df.index[-1], last_price),
+            xytext=(df.index[-1], last_price * 1.0005),  # Slightly above the price
+            arrowprops=dict(facecolor='black', arrowstyle='->'),
+            fontsize=10,
+            color='blue'
+        )
+
         # Bollinger Bands
         self.ax_candle.plot(df.index, df['BBU'], 'b--', alpha=0.5, label='Upper BB')
         self.ax_candle.plot(df.index, df['BBL'], 'b--', alpha=0.5, label='Lower BB')
 
-        # MACD
+        # MACD and RSI plotting (no changes)
         colors = ['green' if val >= 0 else 'red' for val in df['MACD_hist']]
         self.ax_macd.bar(df.index, df['MACD_hist'], width, color=colors, alpha=0.3)
         self.ax_macd.plot(df.index, df['MACD'], label='MACD', color='blue', linewidth=1.5)
         self.ax_macd.plot(df.index, df['MACD_signal'], label='Signal', color='orange', linewidth=1.5)
         self.ax_macd.axhline(y=0, color='gray', linestyle='--', alpha=0.3)
 
-        # RSI
         self.ax_rsi.plot(df.index, df['RSI'], label='RSI', color='purple')
         self.ax_rsi.axhline(y=70, color='r', linestyle='--', alpha=0.5)
         self.ax_rsi.axhline(y=30, color='g', linestyle='--', alpha=0.5)
         self.ax_rsi.set_ylim(0, 100)
 
-        # Set labels and grid
+        # Labels and grid
         self.ax_candle.set_ylabel('Price (USDT)')
         self.ax_macd.set_ylabel('MACD')
         self.ax_rsi.set_ylabel('RSI')
+
         for ax in [self.ax_candle, self.ax_macd, self.ax_rsi]:
             ax.grid(True, alpha=0.3)
             ax.legend(fontsize=10)
 
-        # Update title
+        # Update chart title
         self.fig.suptitle(f'{self.current_symbol} Live Chart', fontsize=16, y=0.95)
 
-        # Redraw the chart
         plt.draw()
 
     def start_animation(self):
