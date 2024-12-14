@@ -244,17 +244,15 @@ def main():
     try:
         print("Starting application...")
         chart = CryptoChart()
-        # Store the animation in a variable that persists
-        global anim  # Add this to store animation in global scope
+        # Create the animation and store it in a local variable
         anim = chart.start_animation()
         print("Starting plot display...")
         plt.show()
+        return anim  # Return animation to prevent garbage collection
     except Exception as e:
         print(f"Error in main: {e}")
     finally:
         plt.close('all')
 
 if __name__ == "__main__":
-    # Define global animation variable
-    anim = None
-    main()
+    animation = main()  # Store the returned animation
