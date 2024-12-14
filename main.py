@@ -244,6 +244,8 @@ def main():
     try:
         print("Starting application...")
         chart = CryptoChart()
+        # Store the animation in a variable that persists
+        global anim  # Add this to store animation in global scope
         anim = chart.start_animation()
         print("Starting plot display...")
         plt.show()
@@ -253,4 +255,6 @@ def main():
         plt.close('all')
 
 if __name__ == "__main__":
+    # Define global animation variable
+    anim = None
     main()
