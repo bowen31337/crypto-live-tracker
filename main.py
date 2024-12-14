@@ -4,41 +4,71 @@ import ta
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from matplotlib.gridspec import GridSpec
+# New imports for buttons
+from matplotlib.widgets import Button  # For interactive buttons
 
 BASE_URL = 'https://api.binance.com/api/v3'
 
-def fetch_klines(symbol='BTCUSDT', interval='1m', limit=100):
+
+def fetch_klines(symbol, interval='1m', limit=100, start_time=None):
+    """
+    Fetch historical candlestick (kline) data from the Binance API.
+
+    Parameters:
+        symbol (str): The trading pair symbol (e.g., 'BTCUSDT').
+        interval (str): The interval for the klines (e.g., '1m', '5m', '1h').
+        limit (int): Number of data points to retrieve (default is 100).
+        start_time (datetime or None): Start time for fetching klines (optional).
+
+    Returns:
+        pd.DataFrame: A DataFrame containing the kline data with columns:
+            ['timestamp', 'open', 'high', 'low', 'close', 'volume']
+    """
+    BASE_URL = 'https://api.binance.com/api/v3'
     url = f'{BASE_URL}/klines'
+
+    # Build the query parameters
     params = {
         'symbol': symbol,
         'interval': interval,
         'limit': limit
     }
-    
+
+    # Add the start time if provided
+    if start_time:
+        params['startTime'] = int(start_time.timestamp() * 1000)  # Convert datetime to milliseconds
+
     try:
-        print("Fetching data from Binance...")
+        print(f"Fetching data for {symbol} with interval {interval}...")
         response = requests.get(url, params=params, timeout=5)
-        response.raise_for_status()
+        response.raise_for_status()  # Raise an exception for bad HTTP status codes
+
+        # Parse the response JSON
         data = response.json()
         print(f"Received {len(data)} klines from Binance")
-        
-        df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 
-                                       'volume', 'close_time', 'quote_volume', 'trades',
-                                       'taker_buy_base', 'taker_buy_quote', 'ignore'])
-        
-        # Convert numeric columns
+
+        # Create a DataFrame
+        df = pd.DataFrame(data, columns=[
+            'timestamp', 'open', 'high', 'low', 'close',
+            'volume', 'close_time', 'quote_volume', 'trades',
+            'taker_buy_base', 'taker_buy_quote', 'ignore'
+        ])
+
+        # Convert numeric columns to appropriate types
         df[['open', 'high', 'low', 'close', 'volume']] = df[['open', 'high', 'low', 'close', 'volume']].astype(float)
-        
-        # Convert timestamp to datetime
+
+        # Convert timestamp to a pandas datetime and set as index
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
         df.set_index('timestamp', inplace=True)
-        
-        print("Sample of data:")
-        print(df.head())
+
         return df
-    except Exception as e:
-        print(f"Error fetching data: {e}")
+    except requests.exceptions.RequestException as req_err:
+        print(f"Request error: {req_err}")
         return None
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        return None
+
 
 def calculate_indicators(df):
     try:
@@ -48,211 +78,159 @@ def calculate_indicators(df):
         df['MACD'] = macd.macd()
         df['MACD_signal'] = macd.macd_signal()
         df['MACD_hist'] = macd.macd_diff()
-        
+
         # Calculate RSI
         df['RSI'] = ta.momentum.RSIIndicator(df['close']).rsi()
-        
+
         # Calculate Bollinger Bands
         bollinger = ta.volatility.BollingerBands(df['close'])
         df['BBU'] = bollinger.bollinger_hband()
         df['BBL'] = bollinger.bollinger_lband()
-        
+
         print("Indicators calculated successfully")
         return df
     except Exception as e:
         print(f"Error calculating indicators: {e}")
         return None
 
+
 class CryptoChart:
-    def __init__(self):
+    def __init__(self, symbols=None, interval='1m'):
         print("Initializing CryptoChart...")
-        
-        # Get screen size
-        try:
-            manager = plt.get_current_fig_manager()
-            if hasattr(manager, 'window'):
-                # Get screen width and height
-                screen_width = manager.window.winfo_screenwidth()
-                screen_height = manager.window.winfo_screenheight()
-                
-                # Calculate figure size based on screen size (80% of screen)
-                fig_width = screen_width * 0.8 / 100  # Convert pixels to inches
-                fig_height = screen_height * 0.8 / 100
-                
-                print(f"Screen size detected: {screen_width}x{screen_height}")
-                print(f"Figure size set to: {fig_width:.1f}x{fig_height:.1f} inches")
-            else:
-                # Default size if can't detect screen
-                fig_width, fig_height = 20, 12
-        except Exception as e:
-            print(f"Could not detect screen size: {e}")
-            fig_width, fig_height = 20, 12
-        
-        # Create figure with adaptive size
+
+        # Initialize available symbols and interval
+        self.symbols = symbols if symbols else ['BTCUSDT', 'PEPEUSDT']
+        self.current_symbol = self.symbols[0]  # Start with the first symbol
+        self.interval = interval
+        self.df = None
+
+        # Create figure and subplots
+        fig_width, fig_height = 16, 9
         self.fig = plt.figure(figsize=(fig_width, fig_height))
-        
-        # Calculate font sizes based on figure width
-        self.title_size = max(16, int(fig_width * 0.8))
-        self.label_size = max(12, int(fig_width * 0.6))
-        self.tick_size = max(10, int(fig_width * 0.5))
-        self.legend_size = max(10, int(fig_width * 0.5))
-        
-        # Store animation object
-        self.ani = None
-        
-        # Adjust GridSpec with proper spacing
-        self.gs = GridSpec(3, 1, 
-                         height_ratios=[2, 1, 1], 
-                         hspace=0.4,
-                         top=0.95,
-                         bottom=0.05,
-                         left=0.05,
-                         right=0.95,
-                         figure=self.fig)
-        
-        # Create subplots
+        self.gs = GridSpec(3, 1, height_ratios=[2, 1, 1], hspace=0.4, top=0.85, bottom=0.2)
         self.ax_candle = self.fig.add_subplot(self.gs[0])
         self.ax_macd = self.fig.add_subplot(self.gs[1])
         self.ax_rsi = self.fig.add_subplot(self.gs[2])
-        
-        # Set title with adaptive font size
-        self.fig.suptitle('BTC/USDT Live Chart', 
-                         fontsize=self.title_size,
-                         y=0.98)
-        
-        # Try to maximize window
-        try:
-            manager = plt.get_current_fig_manager()
-            if hasattr(manager, 'window'):
-                # For TkAgg backend
-                manager.resize(*manager.window.maxsize())
-            elif hasattr(manager, 'full_screen_toggle'):
-                # For Qt backend
-                manager.full_screen_toggle()
-            elif hasattr(manager, 'frame'):
-                # For WX backend
-                manager.frame.Maximize(True)
-        except Exception as e:
-            print(f"Could not maximize window: {e}")
-        
-        # Connect the close event
-        self.fig.canvas.mpl_connect('close_event', self._on_close)
-        
-        print("Chart initialized")
+
+        # Create buttons
+        self.create_buttons()
+
+        # Set chart title
+        self.fig.suptitle(f'{self.current_symbol} Live Chart', fontsize=16, y=0.95)
+
+        # Initial plot
         self.first_update()
-    
-    def _on_close(self, event):
-        """Handle figure close event"""
-        print("Closing chart...")
-        if self.ani is not None:
-            self.ani.event_source.stop()
-        plt.close('all')
-    
+
+    def create_buttons(self):
+        """Create buttons for symbol switching"""
+        # Adjust button positions
+        button_width = 0.1
+        button_height = 0.05
+        spacing = 0.05
+        start_x = 0.1
+
+        # Create a button for each symbol
+        self.buttons = []
+        for i, symbol in enumerate(self.symbols):
+            ax_button = self.fig.add_axes([start_x + i * (button_width + spacing), 0.05, button_width, button_height])
+            button = Button(ax_button, symbol)
+            button.on_clicked(lambda event, sym=symbol: self.switch_symbol(sym))
+            self.buttons.append(button)
+
+    def switch_symbol(self, new_symbol):
+        """Switch the chart to a new symbol"""
+        print(f"Switching symbol to: {new_symbol}")
+        self.current_symbol = new_symbol
+        self.first_update()
+
     def first_update(self):
-        """Initial update to ensure data is displayed"""
-        print("Performing initial update...")
-        df = fetch_klines()
-        if df is not None:
-            df = calculate_indicators(df)
-            if df is not None:
-                self.plot_data(df)
-                print("Initial plot completed")
-    
-    def update(self, frame):
-        """Update the chart with new data"""
-        print(f"Update frame {frame}")
-        try:
-            df = fetch_klines()
-            if df is not None:
-                df = calculate_indicators(df)
-                if df is not None:
-                    self.plot_data(df)
-        except Exception as e:
-            print(f"Error in update: {e}")
-    
+        """Initial update to ensure the chart is displayed"""
+        print(f"Fetching data for {self.current_symbol}...")
+        self.df = fetch_klines(symbol=self.current_symbol, interval=self.interval)
+        if self.df is not None:
+            self.df = calculate_indicators(self.df)
+            self.plot_data(self.df)
+
     def plot_data(self, df):
-        print("Plotting data...")
-        # Clear all axes
+        """Plot the data on the chart"""
+        print(f"Plotting data for {self.current_symbol}...")
+        # Clear previous plots
         self.ax_candle.clear()
         self.ax_macd.clear()
         self.ax_rsi.clear()
-        
-        # Plot candlesticks
-        width = 0.0008
+
+        # Candlestick plot
+        width = (df.index[1] - df.index[0]).total_seconds() / (60 * 60 * 24) * 0.8
         up = df[df.close >= df.open]
         down = df[df.close < df.open]
-        
-        # Plot up candlesticks
         if not up.empty:
-            self.ax_candle.bar(up.index, up.close-up.open, width, bottom=up.open, color='green')
+            self.ax_candle.bar(up.index, up.close - up.open, width, bottom=up.open, color='green')
             self.ax_candle.vlines(up.index, up.low, up.high, color='green', linewidth=1)
-        
-        # Plot down candlesticks
         if not down.empty:
-            self.ax_candle.bar(down.index, down.close-down.open, width, bottom=down.open, color='red')
+            self.ax_candle.bar(down.index, down.close - down.open, width, bottom=down.open, color='red')
             self.ax_candle.vlines(down.index, down.low, down.high, color='red', linewidth=1)
-        
-        # Plot Bollinger Bands
+
+        # Bollinger Bands
         self.ax_candle.plot(df.index, df['BBU'], 'b--', alpha=0.5, label='Upper BB')
         self.ax_candle.plot(df.index, df['BBL'], 'b--', alpha=0.5, label='Lower BB')
-        
-        # MACD Plot
+
+        # MACD
         colors = ['green' if val >= 0 else 'red' for val in df['MACD_hist']]
-        self.ax_macd.bar(df.index, df['MACD_hist'], width, color=colors, alpha=0.3, label='Histogram')
+        self.ax_macd.bar(df.index, df['MACD_hist'], width, color=colors, alpha=0.3)
         self.ax_macd.plot(df.index, df['MACD'], label='MACD', color='blue', linewidth=1.5)
         self.ax_macd.plot(df.index, df['MACD_signal'], label='Signal', color='orange', linewidth=1.5)
         self.ax_macd.axhline(y=0, color='gray', linestyle='--', alpha=0.3)
-        
+
         # RSI
         self.ax_rsi.plot(df.index, df['RSI'], label='RSI', color='purple')
         self.ax_rsi.axhline(y=70, color='r', linestyle='--', alpha=0.5)
         self.ax_rsi.axhline(y=30, color='g', linestyle='--', alpha=0.5)
         self.ax_rsi.set_ylim(0, 100)
-        
-        # Set labels and grid with adaptive font sizes
-        for ax in [self.ax_candle, self.ax_macd, self.ax_rsi]:
-            ax.tick_params(axis='both', labelsize=self.tick_size)
-            ax.yaxis.label.set_size(self.label_size)
-            ax.grid(True, alpha=0.3)
-            ax.legend(fontsize=self.legend_size)
-        
-        # Set specific labels
+
+        # Set labels and grid
         self.ax_candle.set_ylabel('Price (USDT)')
         self.ax_macd.set_ylabel('MACD')
         self.ax_rsi.set_ylabel('RSI')
-        
-        # Align labels and adjust layout
-        self.fig.align_labels()
-    
+        for ax in [self.ax_candle, self.ax_macd, self.ax_rsi]:
+            ax.grid(True, alpha=0.3)
+            ax.legend(fontsize=10)
+
+        # Update title
+        self.fig.suptitle(f'{self.current_symbol} Live Chart', fontsize=16, y=0.95)
+
+        # Redraw the chart
+        plt.draw()
+
     def start_animation(self):
         """Start the animation"""
         print("Starting animation...")
-        try:
-            self.ani = FuncAnimation(
-                self.fig,
-                self.update,
-                interval=1000,
-                blit=False
-            )
-            print("Animation started")
-            return self.ani
-        except Exception as e:
-            print(f"Error starting animation: {e}")
-            return None
+        self.ani = FuncAnimation(
+            self.fig,
+            self.update,
+            interval=1000,
+            blit=False
+        )
+        return self.ani
+
+    def update(self, frame):
+        """Fetch and update data during the animation"""
+        print(f"Updating data for {self.current_symbol}...")
+        df_new = fetch_klines(symbol=self.current_symbol, interval=self.interval)
+        if df_new is not None:
+            self.df = calculate_indicators(df_new)
+            self.plot_data(self.df)
+
 
 def main():
     try:
-        print("Starting application...")
-        chart = CryptoChart()
-        # Create the animation and store it in a local variable
-        anim = chart.start_animation()
-        print("Starting plot display...")
+        chart = CryptoChart(symbols=['BTCUSDT', 'PEPEUSDT'], interval='1m')
+        chart.start_animation()
         plt.show()
-        return anim  # Return animation to prevent garbage collection
     except Exception as e:
         print(f"Error in main: {e}")
     finally:
         plt.close('all')
+
 
 if __name__ == "__main__":
     animation = main()  # Store the returned animation
